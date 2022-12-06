@@ -1,0 +1,15 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug",
+            "program": "${workspaceFolder}/src/index.ts",
+            "type": "node",
+            "preLaunchTask": "build",
+            "request": "launch",
+            "skipFiles": [
+                "<node_internals>/**"
+            ],
+        }
+    ]
+}

@@ -1,0 +1,6 @@
+{
+	"name": "Philips Hue Backup Service",
+	"build": { "dockerfile": "Dockerfile" },
+    "runArgs": [ "--name", "hue-backup-service" ],
+	"postCreateCommand": "./.devcontainer/post-create-command.sh ${containerWorkspaceFolder}"
+}

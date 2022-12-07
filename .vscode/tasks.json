@@ -15,6 +15,13 @@
 			"type": "npm",
 			"script": "watch",
 			"problemMatcher": []
+		},
+		{
+			"type": "npm",
+			"script": "lint",
+			"problemMatcher": [],
+			"label": "lint",
+			"detail": "eslint src/**.ts --max-warnings=0"
 		}
 	]
 }

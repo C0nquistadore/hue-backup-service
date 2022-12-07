@@ -9,6 +9,7 @@ export class App {
   }
 
   private Run(): void {
+    // eslint-disable-next-line no-console
     console.log('Hi there!');
   }
 }

@@ -1,5 +1,6 @@
 export class App {
   public constructor() {
+    // Nothing
   }
 
   public static Run(): void {

@@ -6,6 +6,7 @@
 			"type": "npm",
 			"script": "build",
 			"group": "build",
+			"dependsOn": "lint",
 			"detail": "rimraf ./dist && tsc",
 			"problemMatcher": []
 		},

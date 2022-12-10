@@ -33,7 +33,8 @@ export class App {
       Logger.setDebugEnabled(true);
     }
 
-    const configPath = path.join(path.join(os.homedir(), '.hue-backup-service'), 'config.json');
+    const configDir = path.join(os.homedir(), '.hue-backup-service');
+    const configPath = path.join(configDir, 'config.json');
     let config: HueBackupServiceConfiguration | null = null;
     if (fs.existsSync(configPath)) {
       try {
@@ -56,14 +57,17 @@ export class App {
 
         config = bridge;
 
-        const json = JSON.stringify(config);
+        const json = JSON.stringify(config, null, 4);
+        if (!fs.existsSync(configDir)) {
+          this.logger.debug(`Creating directory: ${configDir}`);
+          fs.mkdirSync(configDir, { recursive: true });
+        }
+        this.logger.debug(`Writing file: ${configPath}`);
         fs.writeFileSync(configPath, json, { encoding: 'utf8' });
       }
     } else {
       this.logger.info(`Using configured bridge: ${config.name ?? config.ipAddress}`);
     }
-
-
   }
 
   private async Discover(): Promise<HueDiscoveryResponse | null> {
@@ -91,7 +95,7 @@ export class App {
       }
 
       if (response) {
-        break;
+        return response;
       }
     }
 

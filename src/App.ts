@@ -1,16 +1,22 @@
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import { Logger } from './Logger';
-import { discovery } from 'node-hue-api';
-import { BridgeDiscoveryResponse, DiscoveryBridgeDescription } from 'node-hue-api/dist/esm/api/discovery/discoveryTypes';
 import yargs from 'yargs';
+import readline from 'readline';
+import { Logger } from './Logger';
+import { api, ApiError, discovery } from 'node-hue-api';
+import { BridgeDiscoveryResponse, DiscoveryBridgeDescription } from 'node-hue-api/dist/esm/api/discovery/discoveryTypes';
+import { CreatedUser } from 'node-hue-api/dist/esm/api/http/endpoints/configuration';
 
 export class App {
   private readonly logger: Logger;
+  private readonly configDir: string;
+  private readonly configPath: string;
 
   public constructor() {
     this.logger = Logger.Internal;
+    this.configDir = path.join(os.homedir(), '.hue-backup-service');
+    this.configPath = path.join(this.configDir, 'config.json');
   }
 
   public static async Run(): Promise<void> {
@@ -19,26 +25,38 @@ export class App {
   }
 
   private async Run(): Promise<void> {
-    const argv = await yargs
-      .options({
-        verbose: {
-          alias: 'v',
-          type: 'boolean',
-          description: 'Run with verbose logging',
-        },
-      })
-      .argv;
+    await this.CollectArguments();
 
-    if (argv.verbose) {
-      Logger.setDebugEnabled(true);
+    const config = await this.CollectConfiguration();
+
+    if (config === null) {
+      return;
     }
 
-    const configDir = path.join(os.homedir(), '.hue-backup-service');
-    const configPath = path.join(configDir, 'config.json');
+    await this.CreateBackup(config);
+  }
+
+  private async CreateBackup(config: HueBackupServiceConfiguration): Promise<void> {
+    const backupsDir = path.join(this.configDir, 'backups');
+    const folderName = App.GetUniqueFolderName();
+    const backupDir = path.join(backupsDir, folderName);
+    this.EnsureDirectory(backupDir);
+
+    const hueApi = await api.createLocal(config.ipAddress).connect(config.userName!);
+    const hueConfig = await hueApi.configuration.getAll();
+    const json = App.FormatJson(hueConfig);
+
+    const backupPath = path.join(backupDir, 'config.json');
+    this.logger.debug(`Writing file: ${backupPath}`);
+    fs.writeFileSync(backupPath, json, { encoding: 'utf8' });
+    this.logger.info(`Successfully created backup: ${backupPath}`);
+  }
+
+  private async CollectConfiguration(): Promise<HueBackupServiceConfiguration | null> {
     let config: HueBackupServiceConfiguration | null = null;
-    if (fs.existsSync(configPath)) {
+    if (fs.existsSync(this.configPath)) {
       try {
-        config = JSON.parse(fs.readFileSync(configPath, { encoding: 'utf8' }));
+        config = JSON.parse(fs.readFileSync(this.configPath, { encoding: 'utf8' }));
       } catch (err) {
         this.logger.error('There was a problem reading your config.json file.');
         this.logger.error('Please try pasting your config.json file here to validate it: http://jsonlint.com');
@@ -46,7 +64,7 @@ export class App {
         throw err;
       }
     } else {
-      this.logger.debug(`Configuration file (${configPath}) not found`);
+      this.logger.debug(`Configuration file (${this.configPath}) not found`);
     }
 
     if (!config?.ipAddress) {
@@ -55,19 +73,32 @@ export class App {
       if (bridge) {
         this.logger.info(`Found Hue bridge: ${bridge.name ?? bridge.ipAddress}`);
 
-        config = bridge;
+        config = {
+          ...bridge,
+          userName: null,
+        };
 
-        const json = JSON.stringify(config, null, 4);
-        if (!fs.existsSync(configDir)) {
-          this.logger.debug(`Creating directory: ${configDir}`);
-          fs.mkdirSync(configDir, { recursive: true });
-        }
-        this.logger.debug(`Writing file: ${configPath}`);
-        fs.writeFileSync(configPath, json, { encoding: 'utf8' });
+        this.WriteConfiguration(config);
+      } else {
+        return null;
       }
     } else {
       this.logger.info(`Using configured bridge: ${config.name ?? config.ipAddress}`);
     }
+
+    if (!config.userName) {
+      this.logger.debug('Configuration has no credentials');
+      this.logger.info('The Hue Backup service is not authenticated yet. To do so, please press the link button on your hue bridge.');
+      await this.Prompt('If you have pressed the link button, press any key to continue..');
+
+      if (!await this.createUser(config)) {
+        return null;
+      }
+    } else {
+      this.logger.debug(`Using stored credentials: ${config.userName}`);
+    }
+
+    return config;
   }
 
   private async Discover(): Promise<HueDiscoveryResponse | null> {
@@ -172,6 +203,90 @@ As a workaround you can edit the config.json manually.`);
     const bridge = results[0];
     return bridge;
   }
+
+  private async createUser(config: HueBackupServiceConfiguration): Promise<boolean> {
+    const unauthenticatedApi = await api.createLocal(config.ipAddress).connect();
+    const appName = 'hue-backup-service';
+
+    let createdUser: CreatedUser;
+    try {
+      this.logger.debug('Creating user on hue bridge');
+      createdUser = await unauthenticatedApi.users.createUser(appName);
+      this.logger.debug(`Created user: ${createdUser}`);
+
+      config.userName = createdUser.username;
+      return true;
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.getHueErrorType() === 101) {
+        this.logger.error('The Link button on the bridge was not pressed. Please press the Link button and try again.');
+      } else {
+        throw err;
+      }
+    }
+
+    return false;
+  }
+
+  private WriteConfiguration(config: HueBackupServiceConfiguration) {
+    this.EnsureDirectory(this.configDir);
+    const json = App.FormatJson(config);
+    this.logger.debug(`Writing file: ${this.configPath}`);
+    fs.writeFileSync(this.configPath, json, { encoding: 'utf8' });
+  }
+
+  private async CollectArguments(): Promise<void> {
+    const argv = await yargs
+      .options({
+        verbose: {
+          alias: 'v',
+          type: 'boolean',
+          description: 'Run with verbose logging',
+        },
+      })
+      .argv;
+
+    if (argv.verbose) {
+      Logger.setDebugEnabled(true);
+    }
+  }
+
+  private EnsureDirectory(directory: string): void {
+    if (!fs.existsSync(directory)) {
+      this.logger.debug(`Creating directory: ${directory}`);
+      fs.mkdirSync(directory, { recursive: true });
+    }
+  }
+
+  private Prompt(query: string): Promise<string> {
+    const queryMessage = this.logger.FormatMessage(query);
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    return new Promise(resolve => rl.question(queryMessage, ans => {
+      rl.close();
+      resolve(ans);
+    }));
+  }
+
+  private static FormatJson(object: unknown): string {
+    const json = JSON.stringify(object, null, 4);
+    return json;
+  }
+
+  private static GetUniqueFolderName(): string {
+    const date = new Date();
+    const year = `${date.getUTCFullYear()}`;
+    const month = `0${(date.getUTCMonth() + 1)}`.slice(-2);
+    const day = `0${(date.getUTCDate())}`.slice(-2);
+    const hour = `0${(date.getUTCHours())}`.slice(-2);
+    const minute = `0${(date.getUTCMinutes())}`.slice(-2);
+    const second = `0${(date.getUTCSeconds())}`.slice(-2);
+    const millisecond = `00${(date.getUTCMilliseconds())}`.slice(-3);
+    const folderName = `${year}-${month}-${day}_${hour}:${minute}:${second}.${millisecond}`;
+    return folderName;
+  }
 }
 
 interface HueDiscoveryResponse {
@@ -180,4 +295,6 @@ interface HueDiscoveryResponse {
   additionalInfo: unknown;
 }
 
-type HueBackupServiceConfiguration = HueDiscoveryResponse;
+interface HueBackupServiceConfiguration extends HueDiscoveryResponse {
+  userName: string | null;
+}

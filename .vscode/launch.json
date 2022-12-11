@@ -3,8 +3,9 @@
     "configurations": [
         {
             "name": "Debug",
-            "program": "${workspaceFolder}/src/index.ts",
+            "program": "${workspaceFolder}",
             "type": "node",
+            "args": [ "--verbose" ],
             "preLaunchTask": "build",
             "request": "launch",
             "skipFiles": [

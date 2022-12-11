@@ -67,6 +67,12 @@ export class Logger {
         break;
     }
 
+    message = this.FormatMessage(message);
+
+    loggingFunction(message);
+  }
+
+  public FormatMessage(message: string) {
     if (this.prefix) {
       message = `${Logger.getLogPrefix(this.prefix)} ${message}`;
     }
@@ -75,8 +81,7 @@ export class Logger {
       const date = new Date();
       message = chalk.white(`[${date.toLocaleString()}] `) + message;
     }
-
-    loggingFunction(message);
+    return message;
   }
 
   public static withPrefix(prefix: string): Logging {

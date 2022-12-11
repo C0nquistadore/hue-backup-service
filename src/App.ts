@@ -36,22 +36,6 @@ export class App {
     await this.CreateBackup(config);
   }
 
-  private async CreateBackup(config: HueBackupServiceConfiguration): Promise<void> {
-    const backupsDir = path.join(this.configDir, 'backups');
-    const folderName = App.GetUniqueFolderName();
-    const backupDir = path.join(backupsDir, folderName);
-    this.EnsureDirectory(backupDir);
-
-    const hueApi = await api.createLocal(config.ipAddress).connect(config.userName!);
-    const hueConfig = await hueApi.configuration.getAll();
-    const json = App.FormatJson(hueConfig);
-
-    const backupPath = path.join(backupDir, 'config.json');
-    this.logger.debug(`Writing file: ${backupPath}`);
-    fs.writeFileSync(backupPath, json, { encoding: 'utf8' });
-    this.logger.info(`Successfully created backup: ${backupPath}`);
-  }
-
   private async CollectConfiguration(): Promise<HueBackupServiceConfiguration | null> {
     let config: HueBackupServiceConfiguration | null = null;
     if (fs.existsSync(this.configPath)) {
@@ -94,6 +78,7 @@ export class App {
       if (!await this.createUser(config)) {
         return null;
       }
+      this.logger.info('Successfully authenticated with the hue bridge');
     } else {
       this.logger.debug(`Using stored credentials: ${config.userName}`);
     }
@@ -207,14 +192,16 @@ As a workaround you can edit the config.json manually.`);
   private async createUser(config: HueBackupServiceConfiguration): Promise<boolean> {
     const unauthenticatedApi = await api.createLocal(config.ipAddress).connect();
     const appName = 'hue-backup-service';
+    const deviceName = os.hostname();
 
     let createdUser: CreatedUser;
     try {
       this.logger.debug('Creating user on hue bridge');
-      createdUser = await unauthenticatedApi.users.createUser(appName);
-      this.logger.debug(`Created user: ${createdUser}`);
+      createdUser = await unauthenticatedApi.users.createUser(appName, deviceName);
+      this.logger.debug(`Created user: ${createdUser.username}`);
 
       config.userName = createdUser.username;
+      this.WriteConfiguration(config);
       return true;
     } catch (err: unknown) {
       if (err instanceof ApiError && err.getHueErrorType() === 101) {
@@ -225,6 +212,22 @@ As a workaround you can edit the config.json manually.`);
     }
 
     return false;
+  }
+
+  private async CreateBackup(config: HueBackupServiceConfiguration): Promise<void> {
+    const backupsDir = path.join(this.configDir, 'backups');
+    const folderName = App.GetUniqueFolderName();
+    const backupDir = path.join(backupsDir, folderName);
+    this.EnsureDirectory(backupDir);
+
+    const hueApi = await api.createLocal(config.ipAddress).connect(config.userName!);
+    const hueConfig = await hueApi.configuration.getAll();
+    const json = App.FormatJson(hueConfig);
+
+    const backupPath = path.join(backupDir, 'config.json');
+    this.logger.debug(`Writing file: ${backupPath}`);
+    fs.writeFileSync(backupPath, json, { encoding: 'utf8' });
+    this.logger.info(`Successfully created backup: ${backupPath}`);
   }
 
   private WriteConfiguration(config: HueBackupServiceConfiguration) {
@@ -284,7 +287,7 @@ As a workaround you can edit the config.json manually.`);
     const minute = `0${(date.getUTCMinutes())}`.slice(-2);
     const second = `0${(date.getUTCSeconds())}`.slice(-2);
     const millisecond = `00${(date.getUTCMilliseconds())}`.slice(-3);
-    const folderName = `${year}-${month}-${day}_${hour}:${minute}:${second}.${millisecond}`;
+    const folderName = `${year}-${month}-${day}_${hour}-${minute}-${second}.${millisecond}`;
     return folderName;
   }
 }

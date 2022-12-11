@@ -22,6 +22,9 @@
     "build": "rimraf ./dist && tsc",
     "prepublishOnly": "npm run lint && npm run build"
   },
+  "bin": {
+    "hue-backup-service": "./dist/index.js"
+  },
   "keywords": [
     "philips",
     "hue",

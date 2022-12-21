@@ -9,14 +9,17 @@ import { BridgeDiscoveryResponse, DiscoveryBridgeDescription } from 'node-hue-ap
 import { CreatedUser } from 'node-hue-api/dist/esm/api/http/endpoints/configuration';
 
 export class App {
+  private static readonly DefaultRetentionCount = 14;
   private readonly logger: Logger;
   private readonly configDir: string;
   private readonly configPath: string;
+  private readonly backupsDir: string;
 
   public constructor() {
     this.logger = Logger.Internal;
     this.configDir = path.join(os.homedir(), '.hue-backup-service');
     this.configPath = path.join(this.configDir, 'config.json');
+    this.backupsDir = path.join(this.configDir, 'backups');
   }
 
   public static async Run(): Promise<void> {
@@ -34,6 +37,8 @@ export class App {
     }
 
     await this.CreateBackup(config);
+
+    await this.Cleanup(config);
   }
 
   private async CollectConfiguration(): Promise<HueBackupServiceConfiguration | null> {
@@ -59,7 +64,6 @@ export class App {
 
         config = {
           ...bridge,
-          userName: null,
         };
 
         this.WriteConfiguration(config);
@@ -215,9 +219,8 @@ As a workaround you can edit the config.json manually.`);
   }
 
   private async CreateBackup(config: HueBackupServiceConfiguration): Promise<void> {
-    const backupsDir = path.join(this.configDir, 'backups');
     const folderName = App.GetUniqueFolderName();
-    const backupDir = path.join(backupsDir, folderName);
+    const backupDir = path.join(this.backupsDir, folderName);
     this.EnsureDirectory(backupDir);
 
     const hueApi = await api.createLocal(config.ipAddress).connect(config.userName!);
@@ -228,6 +231,25 @@ As a workaround you can edit the config.json manually.`);
     this.logger.debug(`Writing file: ${backupPath}`);
     fs.writeFileSync(backupPath, json, { encoding: 'utf8' });
     this.logger.info(`Successfully created backup: ${backupPath}`);
+  }
+
+  private async Cleanup(config: HueBackupServiceConfiguration): Promise<void> {
+    const retentionCount = config.retentionCount ?? App.DefaultRetentionCount;
+    this.logger.debug(`Keeping ${retentionCount} backups`);
+
+    const backupsDir = path.join(this.configDir, 'backups');
+    const backupsToDelete = fs.readdirSync(backupsDir)
+      .map(x => path.join(backupsDir, x))
+      .sort(x => fs.statSync(x).mtimeMs)
+      .reverse()
+      .slice(retentionCount);
+
+    for (const backupToDelete of backupsToDelete) {
+      const backupToDeleteName = path.basename(backupToDelete);
+      this.logger.info(`Removing old backup ${backupToDeleteName}`);
+      this.logger.debug(`Removing directory ${backupToDelete}`);
+      fs.rmSync(backupToDelete, { recursive: true, force: true });
+    }
   }
 
   private WriteConfiguration(config: HueBackupServiceConfiguration) {
@@ -299,5 +321,6 @@ interface HueDiscoveryResponse {
 }
 
 interface HueBackupServiceConfiguration extends HueDiscoveryResponse {
-  userName: string | null;
+  userName?: string;
+  retentionCount?: number;
 }

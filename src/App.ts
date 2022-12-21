@@ -30,6 +30,9 @@ export class App {
   private async Run(): Promise<void> {
     await this.CollectArguments();
 
+    const commandLine = process.argv.join(' ');
+    this.logger.debug(commandLine);
+
     const config = await this.CollectConfiguration();
 
     if (config === null) {

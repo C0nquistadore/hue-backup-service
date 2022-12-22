@@ -6,6 +6,8 @@
 
 This small node application connects to the Philips Hue bridge, gets the current data and dumps it on file. It can be used in conjunction with crontab to create backups periodically.
 
+**Note:** This project does **NOT** offer a functionality to **restore** a backup to a Hue bridge. Creating a backup is merely used for restoring configuration partially using the Hue APIs. It can be helpful for example to restore lost resourcelinks.
+
 ## 📦 Install
 To install the package, npm is required. Please make sure first to have node/npm installed. You can get it here: https://nodejs.org/en/download/.
 
